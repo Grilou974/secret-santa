@@ -588,8 +588,8 @@
 
   function renderForm() {
     $("#closedNote").hidden = true;
-    const sel = $("#name"); const first = sel.options.length <= 1;
-    const cur = sel.value || (first ? lsGet("ss-me", "") : "");
+    const sel = $("#name"); const first = false;
+    const cur = sel.value;
     sel.innerHTML = '<option value="">— Choisis ton prénom —</option>' + FIXED.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${state.draws[p.id] ? " ✓ (a tiré)" : ""}</option>`).join("");
     if (cur && IDS.includes(cur)) { sel.value = cur; if (first) { const p = byId(cur); if (p && !$("#wish").value) $("#wish").value = p.wish; } }
     const dis = !state.canWrite || state.mode === "loading";
