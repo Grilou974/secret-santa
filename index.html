@@ -267,7 +267,7 @@
       <circle cx="49" cy="31" r="2.2" fill="#fff" opacity=".7"/><circle cx="65" cy="31" r="2.2" fill="#fff" opacity=".7"/><circle cx="57" cy="21" r="2.2" fill="#fff" opacity=".7"/>
     </svg>
     <p class="letter" style="margin-top:18px">
-      Coucou tout le monde ! Les lutins <strong>Gilou</strong> et <strong>Corentin</strong> vous invitent à inscrire votre nom pour le Secret Santa AKA cacahuète.
+      Coucou tout le monde ! Les lutins <strong>Gilou</strong> et <strong>Corentin</strong> vous invitent à sélectionner ton prénom à toi pour le Secret Santa AKA cacahuète.
       L'un d'entre vous tirera votre nom au sort et sera forcé sous peine de <strong>réclusion criminelle à perpétuité</strong> de vous offrir un cadeau.
       On vous donne RDV le 24 ! ^^
     </p>
@@ -276,7 +276,7 @@
   </section>
 
   <nav class="nav">
-    <a href="#inscription">✨ Mon rêve</a>
+    <a href="#inscription">🙋 C'est moi</a>
     <a href="#roue">🎡 La roue</a>
     <a href="#lutins">🧑‍🎄 Les participants <span id="navCount"></span></a>
   </nav>
@@ -284,13 +284,13 @@
   <!-- Inscription -->
   <section class="card" id="inscription" style="margin-top:22px">
     <div class="ribbon"></div>
-    <h2><span class="ico">✍️</span> Ton cadeau de rêve</h2>
-    <p class="lead">Tout le monde est déjà dans le tirage ! Ici, tu peux juste ajouter (ou changer) le cadeau de tes rêves, quand tu veux. (Spoiler : personne ne t'offrira de Porsche.)</p>
+    <h2><span class="ico">🙋</span> C'est moi !</h2>
+    <p class="lead">Sélectionne ton prénom à toi, puis file à la roue juste en dessous. Si tu veux, ajoute aussi le cadeau de tes rêves (spoiler : personne ne t'offrira de Porsche).</p>
     <div id="closedNote" class="closed" hidden>🔒 Le tirage a commencé, les inscriptions sont fermées. Si t'as raté le coche, va voir un lutin.</div>
     <form id="form" autocomplete="off">
       <div class="grid2">
         <div class="field">
-          <label for="name">Ton prénom</label>
+          <label for="name">Ton prénom à toi</label>
           <select id="name" required><option value="">— Choisis ton prénom —</option></select>
         </div>
         <div class="field">
@@ -311,7 +311,7 @@
   <section class="card" id="roue">
     <div class="ribbon"></div>
     <h2><span class="ico">🎡</span> La roue du destin</h2>
-    <p class="lead">Choisis ton nom, fais tourner, découvre à qui tu dois un cadeau. Et chut. 🤫</p>
+    <p class="lead">Fais tourner, découvre à qui tu dois un cadeau. Et chut. 🤫</p>
     <div class="wheel-zone">
       <div class="wheel-box">
         <svg class="pointer" viewBox="0 0 60 70" aria-hidden="true">
@@ -322,8 +322,7 @@
         <div class="hub">⭐</div>
       </div>
       <div class="side">
-        <h3>Qui es-tu, petit lutin ?</h3>
-        <select id="who"><option value="">— Choisis ton nom —</option></select>
+        <h3 id="meLabel">👆 Sélectionne d'abord ton prénom plus haut</h3>
         <button class="btn green" id="spinBtn" disabled>🎅 Faire tourner la roue</button>
         <button class="btn ghost" id="revealBtn" style="width:100%; margin-top:12px" hidden>👀 Revoir mon tirage</button>
         <div class="progress"><i id="progBar"></i></div>
@@ -529,17 +528,16 @@
 
   // ---------------- Render ----------------
   function renderAll() {
-    renderPeople(); renderWho(); renderProgress(); renderForm();
+    renderPeople(); renderForm(); renderWho(); renderProgress();
     if (!spinning) drawWheel(currentRotation);
   }
 
   function renderForm() {
     $("#closedNote").hidden = true;
-    const sel = $("#name"); const cur = sel.value;
-    if (sel.options.length !== NAMES.length + 1) {
-      sel.innerHTML = '<option value="">— Choisis ton prénom —</option>' + FIXED.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
-      if (cur) sel.value = cur;
-    }
+    const sel = $("#name"); const first = sel.options.length <= 1;
+    const cur = sel.value || (first ? lsGet("ss-me", "") : "");
+    sel.innerHTML = '<option value="">— Choisis ton prénom —</option>' + FIXED.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${state.draws[p.id] ? " ✓ (a tiré)" : ""}</option>`).join("");
+    if (cur && IDS.includes(cur)) { sel.value = cur; if (first) { const p = byId(cur); if (p && !$("#wish").value) $("#wish").value = p.wish; } }
     const dis = !state.canWrite || state.mode === "loading";
     $("#submitBtn").disabled = dis; $("#name").disabled = dis; $("#wish").disabled = dis; $("#dice").disabled = dis;
   }
@@ -570,20 +568,18 @@
   }
 
   function renderWho() {
-    const sel = $("#who"); const prev = sel.value || lsGet("ss-me", "");
-    sel.innerHTML = '<option value="">— Choisis ton nom —</option>' + state.parts.map(p =>
-      `<option value="${esc(p.id)}">${esc(p.name)}${state.draws[p.id] ? " ✓" : ""}</option>`).join("");
-    if (prev && byId(prev)) sel.value = prev;
+    const me = byId($("#name").value);
+    $("#meLabel").textContent = me ? "🙋 Tu es : " + me.name : "👆 Sélectionne d'abord ton prénom plus haut";
     updateSpinButtons();
   }
 
   function updateSpinButtons() {
-    const me = $("#who").value; const hint = $("#wheelHint");
+    const me = $("#name").value; const hint = $("#wheelHint");
     const spin = $("#spinBtn"), rev = $("#revealBtn");
     const n = state.parts.length;
     rev.hidden = true; spin.disabled = true;
     if (spinning) return;
-    if (!me) { hint.textContent = "Sélectionne ton prénom pour tourner la roue."; return; }
+    if (!me) { hint.textContent = "Choisis ton prénom à toi dans la rubrique « C'est moi ! » juste au-dessus, puis reviens ici."; return; }
     if (state.draws[me]) { rev.hidden = false; hint.textContent = "Tu as déjà tiré ton lutin. Tu peux revoir le résultat (discrètement)."; return; }
     if (!state.canWrite) { hint.textContent = "Ce compte ne peut pas enregistrer de tirage."; return; }
     spin.disabled = false; hint.textContent = "Prêt·e ? Que la magie de Noël opère ✨";
@@ -600,7 +596,7 @@
   let currentRotation = 0, spinning = false;
 
   function wheelNames() {
-    const me = $("#who").value;
+    const me = $("#name").value;
     const list = state.parts.filter(p => p.id !== me);
     return list.length ? list : [{ id: "_", name: "🎁" }, { id: "_2", name: "🎄" }, { id: "_3", name: "⭐" }, { id: "_4", name: "🦌" }, { id: "_5", name: "🎅" }, { id: "_6", name: "❄️" }];
   }
@@ -648,7 +644,7 @@
   }
 
   async function spin() {
-    const me = $("#who").value; if (!me || spinning) return;
+    const me = $("#name").value; if (!me || spinning) return;
     lsSet("ss-me", me);
     spinning = true; updateSpinButtons(); $("#spinBtn").textContent = "🎶 Ça tourne…";
     let target = null;
@@ -706,7 +702,12 @@
   // ---------------- Events ----------------
   $("#dice").addEventListener("click", () => { $("#wish").value = DREAMS[Math.floor(Math.random() * DREAMS.length)]; $("#wish").focus(); });
 
-  $("#name").addEventListener("change", () => { const p = byId($("#name").value); $("#wish").value = p ? p.wish : ""; $("#formMsg").textContent = ""; });
+  $("#name").addEventListener("change", () => {
+    const id = $("#name").value; const p = byId(id);
+    $("#wish").value = p ? p.wish : ""; $("#formMsg").textContent = "";
+    if (id) lsSet("ss-me", id);
+    renderWho(); drawWheel(currentRotation);
+  });
   $("#form").addEventListener("submit", async e => {
     e.preventDefault();
     const id = $("#name").value;
@@ -721,14 +722,12 @@
       msg.textContent = wish ? "🎉 C'est noté " + p.name + " ! Ton rêve est dans la hotte." : "👍 C'est noté " + p.name + " (pas de rêve, quelle humilité).";
       msg.classList.add("ok");
       if (typeof window.confetti === "function") { try { confetti({ particleCount: 60, spread: 60, origin: { y: .7 }, colors: ["#c8102e", "#1f7a4a", "#f2c14e"], zIndex: 25 }); } catch {} }
-      if (!$("#who").value) { $("#who").value = id; updateSpinButtons(); drawWheel(currentRotation); }
     } catch (err) { handleWriteError(err); }
     renderForm();
   });
 
-  $("#who").addEventListener("change", () => { if ($("#who").value) lsSet("ss-me", $("#who").value); updateSpinButtons(); drawWheel(currentRotation); });
   $("#spinBtn").addEventListener("click", spin);
-  $("#revealBtn").addEventListener("click", () => { const me = $("#who").value; if (state.draws[me]) showResult(state.draws[me].target, false); });
+  $("#revealBtn").addEventListener("click", () => { const me = $("#name").value; if (state.draws[me]) showResult(state.draws[me].target, false); });
   $("#closeModal").addEventListener("click", () => $("#modal").classList.remove("open"));
   $("#modal").addEventListener("click", e => { if (e.target.id === "modal") $("#modal").classList.remove("open"); });
 
