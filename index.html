@@ -276,16 +276,16 @@
   </section>
 
   <nav class="nav">
-    <a href="#inscription">✍️ S'inscrire</a>
+    <a href="#inscription">✨ Mon rêve</a>
     <a href="#roue">🎡 La roue</a>
-    <a href="#lutins">🧑‍🎄 Les inscrits <span id="navCount"></span></a>
+    <a href="#lutins">🧑‍🎄 Les participants <span id="navCount"></span></a>
   </nav>
 
   <!-- Inscription -->
   <section class="card" id="inscription" style="margin-top:22px">
     <div class="ribbon"></div>
-    <h2><span class="ico">✍️</span> Inscris-toi</h2>
-    <p class="lead">Ton prénom, et si tu veux, le cadeau de tes rêves. (Spoiler : personne ne t'offrira de Porsche.)</p>
+    <h2><span class="ico">✍️</span> Ton cadeau de rêve</h2>
+    <p class="lead">Tout le monde est déjà dans le tirage ! Ici, tu peux juste ajouter (ou changer) le cadeau de tes rêves, quand tu veux. (Spoiler : personne ne t'offrira de Porsche.)</p>
     <div id="closedNote" class="closed" hidden>🔒 Le tirage a commencé, les inscriptions sont fermées. Si t'as raté le coche, va voir un lutin.</div>
     <form id="form" autocomplete="off">
       <div class="grid2">
@@ -301,7 +301,7 @@
       </div>
       <p class="hint">Le cadeau de rêve est purement décoratif. Aucun lutin ne sera tenu responsable de ta déception.</p>
       <div class="form-actions">
-        <button class="btn" id="submitBtn" type="submit">🎁 Je participe !</button>
+        <button class="btn" id="submitBtn" type="submit">🎁 Enregistrer mon rêve</button>
         <span id="formMsg" class="msg"></span>
       </div>
     </form>
@@ -336,7 +336,7 @@
   <!-- Participants -->
   <section class="card" id="lutins">
     <div class="ribbon"></div>
-    <h2><span class="ico">🧑‍🎄</span> Les inscrits</h2>
+    <h2><span class="ico">🧑‍🎄</span> Les participants</h2>
     <p class="lead" id="peopleLead">Chargement des lutins…</p>
     <div class="people" id="people"></div>
     <div class="admin" id="admin" hidden>
@@ -417,12 +417,18 @@
   const LOCAL_KEY = "secret-santa-local-v1";
   let docRef = null, FV = null;
 
+  const slug = n => n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const FIXED = NAMES.map(n => ({ id: slug(n), name: n }));
+  const IDS = FIXED.map(p => p.id);
+  let wishes = {};
+  function buildParts() { state.parts = FIXED.map(p => ({ ...p, wish: typeof wishes[p.id] === "string" ? wishes[p.id] : "" })); }
   function loadLocal() {
-    const d = lsGet(LOCAL_KEY, { parts: [], draws: {} });
-    state.parts = Array.isArray(d.parts) ? d.parts : [];
+    const d = lsGet(LOCAL_KEY, { wishes: {}, draws: {} });
+    wishes = d.wishes && typeof d.wishes === "object" ? d.wishes : {};
     state.draws = d.draws && typeof d.draws === "object" ? d.draws : {};
+    buildParts();
   }
-  function saveLocal() { lsSet(LOCAL_KEY, { parts: state.parts, draws: state.draws }); }
+  function saveLocal() { lsSet(LOCAL_KEY, { wishes, draws: state.draws }); }
 
   function startLocal(reason) {
     state.mode = "local"; state.isAdmin = true; state.canWrite = true;
@@ -432,49 +438,38 @@
     renderAll();
   }
 
-  // Tout le jeu tient dans UN document : { parts: {id: {name, wish, createdAt}}, draws: {giverId: {target, at}} }
+  // Tout le jeu tient dans UN document : { wishes: {id: "rêve"}, draws: {giverId: {target, at}} }
+  // Les 8 participants sont fixes : tout le monde est dans le tirage dès le départ.
   function readGame(data) {
     data = data || {};
-    const partsObj = data.parts || {}, drawsObj = data.draws || {};
-    const parts = Object.entries(partsObj).map(([id, v]) => ({ id, ...(v || {}) }))
-      .filter(p => typeof p.name === "string").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    const draws = {}; Object.entries(drawsObj).forEach(([g, v]) => { if (v && v.target) draws[g] = v; });
-    return { parts, draws };
+    const w = data.wishes && typeof data.wishes === "object" ? data.wishes : {};
+    const draws = {};
+    Object.entries(data.draws || {}).forEach(([g, v]) => { if (v && v.target && IDS.includes(g) && IDS.includes(v.target)) draws[g] = v; });
+    return { wishes: w, draws };
   }
   const err = code => { const e = new Error(code); e.code = code; return e; };
 
   const store = {
-    async addParticipant(p) {
-      if (state.mode === "fb") {
-        await db.runTransaction(async tx => {
-          const g = readGame((await tx.get(docRef)).data());
-          if (Object.keys(g.draws).length) throw err("closed");
-          if (g.parts.some(x => x.name.toLowerCase() === p.name.toLowerCase())) throw err("duplicate");
-          tx.set(docRef, { parts: { [p.id]: { name: p.name, wish: p.wish, createdAt: p.createdAt } } }, { merge: true });
-        });
-      } else { state.parts.push(p); saveLocal(); renderAll(); }
+    async setWish(id, wish) {
+      if (state.mode === "fb") { await docRef.set({ wishes: { [id]: wish } }, { merge: true }); }
+      else { wishes[id] = wish; buildParts(); saveLocal(); renderAll(); }
     },
-    async removeParticipant(id) {
-      if (state.mode === "fb") { await docRef.update({ ["parts." + id]: FV.delete() }); }
-      else { state.parts = state.parts.filter(p => p.id !== id); saveLocal(); renderAll(); }
-    },
-    // Tirage atomique : relit l'état côté serveur, choisit, écrit — Firebase rejoue si quelqu'un a tiré entre-temps.
+    // Tirage atomique : relit l'état côté serveur, choisit parmi les noms encore libres, écrit.
+    // Si quelqu'un a tiré entre-temps, Firebase rejoue la transaction avec les données à jour.
     async drawFor(me) {
+      if (!IDS.includes(me)) throw err("unknown");
       if (state.mode === "fb") {
         return await db.runTransaction(async tx => {
           const g = readGame((await tx.get(docRef)).data());
-          if (!g.parts.some(p => p.id === me)) throw err("unknown");
           if (g.draws[me]) return { target: g.draws[me].target, already: true };
-          const reg = new Set(g.parts.map(p => p.name.toLowerCase()));
-          if (!Object.keys(g.draws).length && NAMES.some(x => !reg.has(x.toLowerCase()))) throw err("not_all");
-          const target = pickTarget(me, g.draws, g.parts.map(p => p.id));
+          const target = pickTarget(me, g.draws, IDS);
           if (!target) throw err("no_target");
           tx.set(docRef, { draws: { [me]: { target, at: Date.now() } } }, { merge: true });
           return { target, already: false };
         });
       }
       if (state.draws[me]) return { target: state.draws[me].target, already: true };
-      const target = pickTarget(me, state.draws, state.parts.map(p => p.id));
+      const target = pickTarget(me, state.draws, IDS);
       if (!target) throw err("no_target");
       state.draws[me] = { target, at: Date.now() }; saveLocal();
       return { target, already: false };
@@ -502,7 +497,7 @@
     const timer = setTimeout(() => { if (!state.partsLoaded) showBanner("❄️ Impossible de joindre le Pôle Nord pour l'instant… vérifie ta connexion."); }, 10000);
     docRef.onSnapshot(snap => {
       const g = readGame(snap.data());
-      state.parts = g.parts; state.draws = g.draws;
+      wishes = g.wishes; buildParts(); state.draws = g.draws;
       state.partsLoaded = state.drawsLoaded = true; clearTimeout(timer);
       if (!spinning) renderAll();
     }, e => { clearTimeout(timer); state.partsLoaded = true; showBanner("Oups, impossible de lire les données (" + (e && e.code) + "). Vérifie les règles Firestore."); renderAll(); });
@@ -510,9 +505,7 @@
 
   function handleWriteError(e) {
     const c = e && e.code;
-    if (c === "closed") toast("Trop tard, le tirage a commencé !");
-    else if (c === "duplicate") toast("Ce prénom est déjà inscrit !");
-    else if (c === "permission-denied") toast("Firebase refuse l'écriture : vérifie les règles Firestore.");
+    if (c === "permission-denied") toast("Firebase refuse l'écriture : vérifie les règles Firestore.");
     else toast("Un lutin a trébuché… réessaie ! (" + (c || "erreur") + ")");
   }
 
@@ -541,14 +534,13 @@
   }
 
   function renderForm() {
-    const closed = drawsStarted();
-    $("#closedNote").hidden = !closed;
+    $("#closedNote").hidden = true;
     const sel = $("#name"); const cur = sel.value;
-    const taken = new Set(state.parts.map(p => p.name.toLowerCase()));
-    sel.innerHTML = '<option value="">— Choisis ton prénom —</option>' + NAMES.map(n =>
-      `<option value="${esc(n)}"${taken.has(n.toLowerCase()) ? " disabled" : ""}>${esc(n)}${taken.has(n.toLowerCase()) ? " (déjà inscrit·e)" : ""}</option>`).join("");
-    if (cur && !taken.has(cur.toLowerCase())) sel.value = cur;
-    const dis = closed || !state.canWrite || state.mode === "loading";
+    if (sel.options.length !== NAMES.length + 1) {
+      sel.innerHTML = '<option value="">— Choisis ton prénom —</option>' + FIXED.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+      if (cur) sel.value = cur;
+    }
+    const dis = !state.canWrite || state.mode === "loading";
     $("#submitBtn").disabled = dis; $("#name").disabled = dis; $("#wish").disabled = dis; $("#dice").disabled = dis;
   }
 
@@ -559,7 +551,7 @@
     $("#navCount").textContent = n ? "(" + n + ")" : "";
     const lead = $("#peopleLead");
     if (!state.partsLoaded && state.mode !== "local") lead.textContent = "Chargement des lutins…";
-    else lead.textContent = n === 0 ? "Personne pour l'instant. Sois le premier, sois une légende." : n + (n > 1 ? " courageux lutins inscrits." : " courageux lutin inscrit.");
+    else lead.textContent = "Les " + n + " lutins de l'édition 2026. Chacun peut tirer quand il veut, depuis chez lui.";
     const box = $("#people");
     if (n === 0) {
       box.innerHTML = state.partsLoaded || state.mode === "local" ? '<div class="empty" style="grid-column:1/-1"><svg viewBox="0 0 120 120"><rect x="14" y="46" width="92" height="66" rx="8" fill="#c8102e"/><rect x="8" y="34" width="104" height="22" rx="6" fill="#e0213f"/><rect x="52" y="34" width="16" height="78" fill="#f2c14e"/><path d="M60 34 C 40 6, 18 18, 34 32 Z" fill="#f2c14e"/><path d="M60 34 C 80 6, 102 18, 86 32 Z" fill="#f2c14e"/></svg><p>La hotte est vide… pour l\'instant.</p></div>' : "";
@@ -569,11 +561,11 @@
         const done = !!state.draws[p.id];
         const initial = esc((p.name.trim()[0] || "?").toUpperCase());
         const wish = p.wish ? `<div class="wish">✨ Rêve : <b>${esc(p.wish)}</b></div>` : `<div class="wish" style="opacity:.7">✨ Rêve : <i>rien demandé, quelle humilité</i></div>`;
-        const rm = state.isAdmin && !started && state.canWrite ? `<button class="rm" data-rm="${esc(p.id)}" title="Retirer">✕</button>` : "";
+        const rm = "";
         return `<div class="person">${rm}<div class="top"><div class="avatar" style="background:${AV_COLORS[i % AV_COLORS.length]}">${hatSvg()}${initial}</div><div><div class="pname">${esc(p.name)}</div><span class="chip ${done ? "done" : "wait"}">${done ? "🎁 a tiré son lutin" : "⏳ n'a pas encore tiré"}</span></div></div>${wish}</div>`;
       }).join("");
     }
-    $("#admin").hidden = !(state.isAdmin && state.canWrite && n > 0);
+    $("#admin").hidden = !(state.isAdmin && state.canWrite);
     $("#resetBtn").disabled = !drawsStarted();
   }
 
@@ -591,10 +583,6 @@
     const n = state.parts.length;
     rev.hidden = true; spin.disabled = true;
     if (spinning) return;
-    const regNames = new Set(state.parts.map(p => p.name.toLowerCase()));
-    const missing = NAMES.filter(x => !regNames.has(x.toLowerCase()));
-    if (missing.length && !drawsStarted()) { hint.textContent = "🔒 La roue s'ouvre quand tout le monde est inscrit. Il manque encore : " + missing.join(", ") + "."; return; }
-    if (n < 3) { hint.textContent = "Il faut au moins 3 inscrits pour lancer la roue."; return; }
     if (!me) { hint.textContent = "Sélectionne ton prénom pour tourner la roue."; return; }
     if (state.draws[me]) { rev.hidden = false; hint.textContent = "Tu as déjà tiré ton lutin. Tu peux revoir le résultat (discrètement)."; return; }
     if (!state.canWrite) { hint.textContent = "Ce compte ne peut pas enregistrer de tirage."; return; }
@@ -671,7 +659,6 @@
     } catch (e) {
       spinning = false; $("#spinBtn").textContent = "🎅 Faire tourner la roue";
       if (e && e.code === "no_target") toast("Plus personne à tirer… demande aux lutins de réinitialiser.");
-      else if (e && e.code === "not_all") toast("Tout le monde n'est pas encore inscrit !");
       else handleWriteError(e);
       updateSpinButtons(); return;
     }
@@ -719,23 +706,22 @@
   // ---------------- Events ----------------
   $("#dice").addEventListener("click", () => { $("#wish").value = DREAMS[Math.floor(Math.random() * DREAMS.length)]; $("#wish").focus(); });
 
+  $("#name").addEventListener("change", () => { const p = byId($("#name").value); $("#wish").value = p ? p.wish : ""; $("#formMsg").textContent = ""; });
   $("#form").addEventListener("submit", async e => {
     e.preventDefault();
-    const name = $("#name").value.trim().replace(/\s+/g, " ");
-    const wish = $("#wish").value.trim().replace(/\s+/g, " ");
+    const id = $("#name").value;
+    const wish = $("#wish").value.trim().replace(/\s+/g, " ").slice(0, 90);
     const msg = $("#formMsg"); msg.className = "msg";
-    if (!name) { msg.textContent = "Choisis ton prénom dans la liste 😅"; msg.classList.add("err"); return; }
-    if (drawsStarted()) { msg.textContent = "Trop tard, le tirage a commencé !"; msg.classList.add("err"); return; }
-    if (state.parts.some(p => p.name.toLowerCase() === name.toLowerCase())) { msg.textContent = "Ce prénom est déjà inscrit ! Ajoute une initiale."; msg.classList.add("err"); return; }
-    const p = { id: uid(), name: name.slice(0, 30), wish: wish.slice(0, 90), createdAt: Date.now() };
+    const p = byId(id);
+    if (!p) { msg.textContent = "Choisis ton prénom dans la liste 😅"; msg.classList.add("err"); return; }
     $("#submitBtn").disabled = true;
     try {
-      await store.addParticipant(p);
-      lsSet("ss-me", p.id);
-      $("#name").value = ""; $("#wish").value = "";
-      msg.textContent = "🎉 Bienvenue " + p.name + " ! Tu es dans la hotte."; msg.classList.add("ok");
+      await store.setWish(id, wish);
+      lsSet("ss-me", id);
+      msg.textContent = wish ? "🎉 C'est noté " + p.name + " ! Ton rêve est dans la hotte." : "👍 C'est noté " + p.name + " (pas de rêve, quelle humilité).";
+      msg.classList.add("ok");
       if (typeof window.confetti === "function") { try { confetti({ particleCount: 60, spread: 60, origin: { y: .7 }, colors: ["#c8102e", "#1f7a4a", "#f2c14e"], zIndex: 25 }); } catch {} }
-      setTimeout(() => { if (byId(p.id)) { $("#who").value = p.id; updateSpinButtons(); drawWheel(currentRotation); } }, 400);
+      if (!$("#who").value) { $("#who").value = id; updateSpinButtons(); drawWheel(currentRotation); }
     } catch (err) { handleWriteError(err); }
     renderForm();
   });
@@ -758,7 +744,7 @@
     const b = $("#resetBtn");
     if (!resetArmed) { resetArmed = true; b.textContent = "⚠️ Confirmer la réinitialisation"; setTimeout(() => { resetArmed = false; b.textContent = "🔄 Réinitialiser le tirage"; }, 4000); return; }
     resetArmed = false; b.textContent = "🔄 Réinitialiser le tirage";
-    try { await store.resetDraws(); toast("Tirage réinitialisé, inscriptions rouvertes !"); } catch (err) { handleWriteError(err); }
+    try { await store.resetDraws(); toast("Tirage réinitialisé : tout le monde peut retirer !"); } catch (err) { handleWriteError(err); }
   });
 
   // ---------------- Snow ----------------
