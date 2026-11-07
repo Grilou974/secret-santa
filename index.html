@@ -183,6 +183,11 @@
   .admin{margin-top:26px; padding-top:18px; border-top:2px dashed #ead9c3; display:flex; gap:12px; align-items:center; flex-wrap:wrap}
   .admin span{color:var(--muted); font-size:14px}
 
+  .draws-table{width:100%; border-collapse:collapse; background:#fff; border-radius:14px; overflow:hidden}
+  .draws-table td,.draws-table th{padding:10px 14px; border-bottom:1px solid #f0e2cd; text-align:left}
+  .draws-table th{background:#fdf1d8; font-weight:700}
+  .check{margin-top:14px; padding:12px 14px; border-radius:14px; font-weight:600}
+  .check.ok{background:#e3f4ea; color:var(--green-d)} .check.ko{background:#fdecec; color:var(--red-d)}
   .banner{margin:18px auto 0; max-width:760px; text-align:center; color:var(--cream); background:rgba(200,16,46,.25); border:1px solid rgba(255,255,255,.18); padding:10px 14px; border-radius:14px; font-size:14px}
 
   footer{text-align:center; color:rgba(255,248,236,.6); margin-top:40px; font-size:14px}
@@ -340,12 +345,19 @@
     <h2><span class="ico">🧑‍🎄</span> Les participants</h2>
     <p class="lead" id="peopleLead">Chargement des lutins…</p>
     <div class="people" id="people"></div>
-    <div class="admin" id="admin" hidden>
-      <span>🛠️ Coin de Gilou :</span>
+  </section>
+
+  <section class="card" id="admin" hidden>
+    <div class="ribbon"></div>
+    <h2><span class="ico">🔐</span> Coin secret de Gilou</h2>
+    <p class="lead" id="authInfo">Réservé à Gilou : connecte-toi avec ton compte Google.</p>
+    <div class="form-actions" style="margin-top:0">
       <button class="btn ghost" id="loginBtn">🔐 Me connecter (Google)</button>
+      <button class="btn ghost" id="showDrawsBtn" hidden>👀 Voir qui a tiré qui</button>
       <button class="btn ghost" id="resetBtn" hidden>🔄 Réinitialiser le tirage</button>
-      <span id="authInfo"></span>
+      <button class="btn ghost" id="logoutBtn" hidden>Se déconnecter</button>
     </div>
+    <div id="drawsBox" hidden style="margin-top:20px"></div>
   </section>
 
   <footer>
@@ -396,7 +408,7 @@
     "un PSG-OM en loge VIP", "un majordome nommé Jean-Eudes", "une cave de 10 000 bouteilles", "un dragon (petit)",
     "un chihuahua", "un collant de danseur", "un bon livre", "un plaid tout doux", "une bougie qui sent le sapin", "un jeu de société"
   ];
-  const NAMES = ["Corentin", "Dono", "Gilou"];
+  const NAMES = ["Barbara", "Corentin", "Dono", "Gilou", "Melissa", "Stéphane"];
   const AV_COLORS =["#c8102e","#1f7a4a","#c9952b","#8e0b20","#14532f","#b5651d","#2a6f97","#7b2d8b"];
   const SEG_COLORS = ["#c8102e","#1f7a4a","#f2c14e","#fff8ec","#8e0b20","#2b8a52"];
   const SEG_TEXT   = ["#fff","#fff","#5a3a00","#8e0b20","#fff","#fff"];
@@ -500,9 +512,14 @@
     state.mode = "fb";
     state.isAdmin = new URLSearchParams(location.search).has("lutins");
     if (state.isAdmin && firebase.auth) {
-      firebase.auth().onAuthStateChanged(u => {
-        $("#loginBtn").hidden = !!u; $("#resetBtn").hidden = !u;
-        $("#authInfo").textContent = u ? "Connecté : " + (u.email || "?") : "Seul Gilou peut réinitialiser.";
+      firebase.auth().onAuthStateChanged(async u => {
+        const ok = !!u && await isGilou(u);
+        state.gilou = ok;
+        $("#loginBtn").hidden = !!u; $("#logoutBtn").hidden = !u;
+        $("#resetBtn").hidden = !ok; $("#showDrawsBtn").hidden = !ok;
+        if (!ok) { $("#drawsBox").hidden = true; $("#drawsBox").innerHTML = ""; }
+        $("#authInfo").textContent = !u ? "Réservé à Gilou : connecte-toi avec ton compte Google."
+          : ok ? "Salut Gilou 👋 Tu es connecté." : "Ce compte n'est pas celui de Gilou : accès refusé.";
       });
     }
     const timer = setTimeout(() => { if (!state.partsLoaded) showBanner("❄️ Impossible de joindre le Pôle Nord pour l'instant… vérifie ta connexion."); }, 10000);
@@ -518,6 +535,31 @@
     const c = e && e.code;
     if (c === "permission-denied") toast("Firebase refuse l'écriture : vérifie les règles Firestore.");
     else toast("Un lutin a trébuché… réessaie ! (" + (c || "erreur") + ")");
+  }
+
+  // Empreinte (SHA-256) de l'adresse de Gilou : on ne met pas l'adresse en clair dans le code public.
+  const GILOU_HASH = "6202525c03ba035446416545a30f9184aee5daac1ef5979a1d89cc851fb663e4";
+  async function isGilou(u) {
+    try {
+      if (!u.email || !u.emailVerified) return false;
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(u.email.toLowerCase()));
+      return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("") === GILOU_HASH;
+    } catch { return false; }
+  }
+  function renderDrawsBox() {
+    const box = $("#drawsBox"); if (box.hidden) return;
+    const rows = state.parts.map(p => {
+      const d = state.draws[p.id]; const t = d ? byId(d.target) : null;
+      return `<tr><td>${esc(p.name)}</td><td>${t ? "🎁 " + esc(t.name) : '<span style="color:#7a6656">pas encore tiré</span>'}</td></tr>`;
+    }).join("");
+    const targets = Object.values(state.draws).map(d => d.target);
+    const dup = targets.length !== new Set(targets).size;
+    const self = Object.entries(state.draws).some(([g, d]) => g === d.target);
+    const done = targets.length, n = state.parts.length;
+    const check = dup || self
+      ? `<div class="check ko">⚠️ Problème détecté : ${dup ? "un prénom a été tiré deux fois. " : ""}${self ? "quelqu'un s'est tiré lui-même." : ""}</div>`
+      : `<div class="check ok">✅ Aucun doublon, personne ne s'est tiré lui-même (${done}/${n} tirages faits).</div>`;
+    box.innerHTML = `<table class="draws-table"><tr><th>Qui</th><th>offre à</th></tr>${rows}</table>${check}`;
   }
 
   // ---------------- UI helpers ----------------
@@ -540,7 +582,7 @@
 
   // ---------------- Render ----------------
   function renderAll() {
-    renderPeople(); renderForm(); renderWho(); renderProgress();
+    renderPeople(); renderForm(); renderWho(); renderProgress(); renderDrawsBox();
     if (!spinning) drawWheel(currentRotation);
   }
 
@@ -754,6 +796,14 @@
   $("#loginBtn").addEventListener("click", async () => {
     try { await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
     catch (e) { toast("Connexion annulée ou impossible (" + ((e && e.code) || "erreur") + ")"); }
+  });
+  $("#logoutBtn").addEventListener("click", () => { try { firebase.auth().signOut(); } catch {} });
+  $("#showDrawsBtn").addEventListener("click", () => {
+    const box = $("#drawsBox");
+    if (!state.gilou) return;
+    box.hidden = !box.hidden;
+    $("#showDrawsBtn").textContent = box.hidden ? "👀 Voir qui a tiré qui" : "🙈 Cacher";
+    renderDrawsBox();
   });
   $("#resetBtn").addEventListener("click", async () => {
     const b = $("#resetBtn");
