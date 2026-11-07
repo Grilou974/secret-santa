@@ -285,7 +285,7 @@
   <section class="card" id="inscription" style="margin-top:22px">
     <div class="ribbon"></div>
     <h2><span class="ico">🙋</span> C'est moi !</h2>
-    <p class="lead">Sélectionne ton prénom à toi, puis file à la roue juste en dessous. Si tu veux, ajoute aussi le cadeau de tes rêves (spoiler : personne ne t'offrira de Porsche).</p>
+    <p class="lead">Sélectionne ton prénom à toi, puis file à la roue juste en dessous. Si tu veux, ajoute aussi le cadeau de tes rêves : un vrai souhait ou une grosse blague, c'est toi qui vois.</p>
     <div id="closedNote" class="closed" hidden>🔒 Le tirage a commencé, les inscriptions sont fermées. Si t'as raté le coche, va voir un lutin.</div>
     <form id="form" autocomplete="off">
       <div class="grid2">
@@ -294,12 +294,12 @@
           <select id="name" required><option value="">— Choisis ton prénom —</option></select>
         </div>
         <div class="field">
-          <label for="wish">Le cadeau de tes rêves <small>(optionnel, pour rire)</small></label>
-          <input type="text" id="wish" maxlength="90" placeholder="Ex : une Porsche 911 rose">
+          <label for="wish">Le cadeau de tes rêves <small>(optionnel, sérieux ou pour rire)</small></label>
+          <input type="text" id="wish" maxlength="90" placeholder="Ex : un chihuahua, un collant de danseur, une Porsche, ...">
           <button type="button" class="dice" id="dice" title="Une idée au hasard">🎲</button>
         </div>
       </div>
-      <p class="hint">Le cadeau de rêve est purement décoratif. Aucun lutin ne sera tenu responsable de ta déception.</p>
+      <p class="hint">Vrai souhait ou délire total, ton lutin saura s'en inspirer… ou pas. Tu peux le modifier quand tu veux.</p>
       <div class="form-actions">
         <button class="btn" id="submitBtn" type="submit">🎁 Enregistrer mon rêve</button>
         <span id="formMsg" class="msg"></span>
@@ -389,9 +389,10 @@
     "une île privée aux Maldives", "un jet privé, même d'occasion", "un lama de compagnie", "un an de raclette à volonté",
     "une Lamborghini en chocolat grandeur nature", "Ryan Gosling (en personne)", "un abonnement à vie chez le kiné",
     "la paix dans le monde + des chaussettes", "une fusée pour Mars, aller simple", "le Louvre (juste la Joconde, ça ira)",
-    "un PSG-OM en loge VIP", "un majordome nommé Jean-Eudes", "une cave de 10 000 bouteilles", "un dragon (petit)"
+    "un PSG-OM en loge VIP", "un majordome nommé Jean-Eudes", "une cave de 10 000 bouteilles", "un dragon (petit)",
+    "un chihuahua", "un collant de danseur", "un bon livre", "un plaid tout doux", "une bougie qui sent le sapin", "un jeu de société"
   ];
-  const NAMES = ["Barbara", "Corentin", "Dono", "Gilou", "Melissa", "Stéphane"];
+  const NAMES = ["Corentin", "Dono", "Gilou"];
   const AV_COLORS =["#c8102e","#1f7a4a","#c9952b","#8e0b20","#14532f","#b5651d","#2a6f97","#7b2d8b"];
   const SEG_COLORS = ["#c8102e","#1f7a4a","#f2c14e","#fff8ec","#8e0b20","#2b8a52"];
   const SEG_TEXT   = ["#fff","#fff","#5a3a00","#8e0b20","#fff","#fff"];
@@ -686,7 +687,7 @@
     const p = byId(targetId);
     $("#modalName").textContent = p ? p.name : "un lutin mystère";
     const w = $("#modalWish");
-    if (p && p.wish) { w.innerHTML = "Son rêve : <b>" + esc(p.wish) + "</b><br><small>(bon… une paire de chaussettes fera très bien l'affaire)</small>"; }
+    if (p && p.wish) { w.innerHTML = "Son rêve : <b>" + esc(p.wish) + "</b><br><small>(vrai souhait ou blague ? à toi de deviner 😏)</small>"; }
     else { w.innerHTML = "Pas de rêve renseigné.<br><small>Champ libre : surprends-le/la !</small>"; }
     $("#modal").classList.add("open");
     if (party && typeof window.confetti === "function") {
