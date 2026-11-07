@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
   :root{
     --night:#0b1f17;
@@ -26,6 +27,7 @@
     --radius:22px;
   }
   *{box-sizing:border-box}
+  [hidden]{display:none !important}
   html{scroll-behavior:smooth}
   body{
     margin:0; min-height:100vh; color:var(--ink);
@@ -339,8 +341,10 @@
     <p class="lead" id="peopleLead">Chargement des lutins…</p>
     <div class="people" id="people"></div>
     <div class="admin" id="admin" hidden>
-      <span>🛠️ Coin des lutins organisateurs :</span>
-      <button class="btn ghost" id="resetBtn">🔄 Réinitialiser le tirage</button>
+      <span>🛠️ Coin de Gilou :</span>
+      <button class="btn ghost" id="loginBtn">🔐 Me connecter (Google)</button>
+      <button class="btn ghost" id="resetBtn" hidden>🔄 Réinitialiser le tirage</button>
+      <span id="authInfo"></span>
     </div>
   </section>
 
@@ -431,7 +435,8 @@
   function saveLocal() { lsSet(LOCAL_KEY, { wishes, draws: state.draws }); }
 
   function startLocal(reason) {
-    state.mode = "local"; state.isAdmin = true; state.canWrite = true;
+    state.mode = "local"; state.isAdmin = new URLSearchParams(location.search).has("lutins"); state.canWrite = true;
+    $("#loginBtn").hidden = true; $("#resetBtn").hidden = false;
     loadLocal(); state.partsLoaded = state.drawsLoaded = true;
     if (reason) showBanner(reason);
     window.addEventListener("storage", e => { if (e.key === LOCAL_KEY) { loadLocal(); renderAll(); } });
@@ -494,6 +499,12 @@
     } catch (e) { startLocal("Firebase mal configuré : mode local."); return; }
     state.mode = "fb";
     state.isAdmin = new URLSearchParams(location.search).has("lutins");
+    if (state.isAdmin && firebase.auth) {
+      firebase.auth().onAuthStateChanged(u => {
+        $("#loginBtn").hidden = !!u; $("#resetBtn").hidden = !u;
+        $("#authInfo").textContent = u ? "Connecté : " + (u.email || "?") : "Seul Gilou peut réinitialiser.";
+      });
+    }
     const timer = setTimeout(() => { if (!state.partsLoaded) showBanner("❄️ Impossible de joindre le Pôle Nord pour l'instant… vérifie ta connexion."); }, 10000);
     docRef.onSnapshot(snap => {
       const g = readGame(snap.data());
@@ -740,11 +751,16 @@
   });
 
   let resetArmed = false;
+  $("#loginBtn").addEventListener("click", async () => {
+    try { await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+    catch (e) { toast("Connexion annulée ou impossible (" + ((e && e.code) || "erreur") + ")"); }
+  });
   $("#resetBtn").addEventListener("click", async () => {
     const b = $("#resetBtn");
     if (!resetArmed) { resetArmed = true; b.textContent = "⚠️ Confirmer la réinitialisation"; setTimeout(() => { resetArmed = false; b.textContent = "🔄 Réinitialiser le tirage"; }, 4000); return; }
     resetArmed = false; b.textContent = "🔄 Réinitialiser le tirage";
-    try { await store.resetDraws(); toast("Tirage réinitialisé : tout le monde peut retirer !"); } catch (err) { handleWriteError(err); }
+    try { await store.resetDraws(); toast("Tirage réinitialisé : tout le monde peut retirer !"); }
+    catch (err) { if (err && err.code === "permission-denied") toast("🔒 Seul Gilou peut réinitialiser le tirage."); else handleWriteError(err); }
   });
 
   // ---------------- Snow ----------------
