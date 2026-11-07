@@ -465,6 +465,8 @@
           const g = readGame((await tx.get(docRef)).data());
           if (!g.parts.some(p => p.id === me)) throw err("unknown");
           if (g.draws[me]) return { target: g.draws[me].target, already: true };
+          const reg = new Set(g.parts.map(p => p.name.toLowerCase()));
+          if (!Object.keys(g.draws).length && NAMES.some(x => !reg.has(x.toLowerCase()))) throw err("not_all");
           const target = pickTarget(me, g.draws, g.parts.map(p => p.id));
           if (!target) throw err("no_target");
           tx.set(docRef, { draws: { [me]: { target, at: Date.now() } } }, { merge: true });
@@ -589,7 +591,10 @@
     const n = state.parts.length;
     rev.hidden = true; spin.disabled = true;
     if (spinning) return;
-    if (n < 3) { hint.textContent = n < 2 ? "Il faut au moins 3 inscrits pour lancer la roue." : "Encore un inscrit et la roue est à vous (minimum 3)."; return; }
+    const regNames = new Set(state.parts.map(p => p.name.toLowerCase()));
+    const missing = NAMES.filter(x => !regNames.has(x.toLowerCase()));
+    if (missing.length && !drawsStarted()) { hint.textContent = "🔒 La roue s'ouvre quand tout le monde est inscrit. Il manque encore : " + missing.join(", ") + "."; return; }
+    if (n < 3) { hint.textContent = "Il faut au moins 3 inscrits pour lancer la roue."; return; }
     if (!me) { hint.textContent = "Sélectionne ton prénom pour tourner la roue."; return; }
     if (state.draws[me]) { rev.hidden = false; hint.textContent = "Tu as déjà tiré ton lutin. Tu peux revoir le résultat (discrètement)."; return; }
     if (!state.canWrite) { hint.textContent = "Ce compte ne peut pas enregistrer de tirage."; return; }
@@ -666,6 +671,7 @@
     } catch (e) {
       spinning = false; $("#spinBtn").textContent = "🎅 Faire tourner la roue";
       if (e && e.code === "no_target") toast("Plus personne à tirer… demande aux lutins de réinitialiser.");
+      else if (e && e.code === "not_all") toast("Tout le monde n'est pas encore inscrit !");
       else handleWriteError(e);
       updateSpinButtons(); return;
     }
